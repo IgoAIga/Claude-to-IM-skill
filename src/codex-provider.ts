@@ -94,6 +94,29 @@ function filterForwardedAgentText(text: string): string {
   return parts.map((part) => `${DISCORD_FORWARD_SEPARATOR}${part}`).join('');
 }
 
+export function extractForwardBlocks(
+  text: string,
+  allowTrailing: boolean,
+): string[] {
+  const prefix = process.env.CTI_DISCORD_FORWARD_PREFIX?.trim();
+  if (!prefix) return [];
+
+  const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const normalized = text.replace(/\r\n/g, '\n');
+  const pattern = new RegExp(
+    `(?:^|\\n)\\s*${escapedPrefix}\\s*([\\s\\S]*?)(?=(?:\\n\\s*${escapedPrefix}\\s*)|$)`,
+    'g',
+  );
+
+  const matches = Array.from(normalized.matchAll(pattern));
+  if (matches.length === 0) return [];
+
+  const completeMatches = allowTrailing ? matches : matches.slice(0, -1);
+  return completeMatches
+    .map((match) => (match[1] || '').trim())
+    .filter(Boolean);
+}
+
 // ── JSON-RPC 2.0 Client over WebSocket ──
 
 interface JsonRpcNotification {
@@ -177,7 +200,6 @@ class AppServerClient {
       capabilities: {
         experimentalApi: false,
         optOutNotificationMethods: [
-          'item/agentMessage/delta',
           'item/reasoning/summaryTextDelta',
           'item/reasoning/summaryPartAdded',
           'item/reasoning/textDelta',
@@ -409,6 +431,8 @@ export class CodexProvider implements LLMProvider {
             }
 
             let retryFresh = false;
+            const streamedAgentMessageIds = new Set<string>();
+            const forwardState = new Map<string, { raw: string; sentCount: number }>();
 
             while (true) {
               // ── Start or resume thread ──
@@ -452,9 +476,46 @@ export class CodexProvider implements LLMProvider {
                   const { method, params: np } = notification;
 
                   switch (method) {
+                    case 'item/agentMessage/delta': {
+                      const itemId = (np?.itemId as string | undefined) || '';
+                      const delta = (np?.delta as string | undefined) || '';
+                      if (!itemId || !delta) break;
+
+                      const state = forwardState.get(itemId) || { raw: '', sentCount: 0 };
+                      state.raw += delta;
+                      const blocks = extractForwardBlocks(state.raw, false);
+                      if (blocks.length > state.sentCount) {
+                        streamedAgentMessageIds.add(itemId);
+                        for (const block of blocks.slice(state.sentCount)) {
+                          controller.enqueue(sseEvent('text', `${DISCORD_FORWARD_SEPARATOR}${block}`));
+                        }
+                        state.sentCount = blocks.length;
+                      }
+                      forwardState.set(itemId, state);
+                      break;
+                    }
+
                     case 'item/completed': {
                       const item = np?.item as Record<string, unknown> | undefined;
-                      if (item) self.handleCompletedItem(controller, item);
+                      if (item) {
+                        const itemType = item.type as string;
+                        const itemId = (item.id as string | undefined) || '';
+                        if ((itemType === 'agent_message' || itemType === 'agentMessage') && itemId) {
+                          const state = forwardState.get(itemId);
+                          if (state) {
+                            const finalText = (item.text as string | undefined) || state.raw;
+                            const blocks = extractForwardBlocks(finalText, true);
+                            if (blocks.length > state.sentCount) {
+                              streamedAgentMessageIds.add(itemId);
+                              for (const block of blocks.slice(state.sentCount)) {
+                                controller.enqueue(sseEvent('text', `${DISCORD_FORWARD_SEPARATOR}${block}`));
+                              }
+                            }
+                            forwardState.delete(itemId);
+                          }
+                        }
+                        self.handleCompletedItem(controller, item, streamedAgentMessageIds);
+                      }
                       break;
                     }
 
@@ -537,12 +598,17 @@ export class CodexProvider implements LLMProvider {
   private handleCompletedItem(
     controller: ReadableStreamDefaultController<string>,
     item: Record<string, unknown>,
+    streamedAgentMessageIds?: Set<string>,
   ): void {
     const itemType = item.type as string;
 
     switch (itemType) {
       case 'agent_message':
       case 'agentMessage': {
+        const itemId = (item.id as string | undefined) || '';
+        if (itemId && streamedAgentMessageIds?.has(itemId)) {
+          break;
+        }
         const text = filterForwardedAgentText((item.text as string) || '');
         if (text) {
           controller.enqueue(sseEvent('text', text));

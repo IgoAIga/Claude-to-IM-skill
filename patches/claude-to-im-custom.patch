@@ -24,22 +24,37 @@ index 054b34f..61b5288 100644
  
      // Dedup by message ID
 diff --git a/src/lib/bridge/bridge-manager.ts b/src/lib/bridge/bridge-manager.ts
-index 751cfef..2c97315 100644
+index 751cfef..833526b 100644
 --- a/src/lib/bridge/bridge-manager.ts
 +++ b/src/lib/bridge/bridge-manager.ts
-@@ -48,6 +48,11 @@ const STREAM_DEFAULTS: Record<string, StreamConfig> = {
+@@ -48,6 +48,26 @@ const STREAM_DEFAULTS: Record<string, StreamConfig> = {
    telegram: { intervalMs: 700, minDeltaChars: 20, maxChars: 3900 },
    discord: { intervalMs: 1500, minDeltaChars: 40, maxChars: 1900 },
  };
 +const DISCORD_FORWARD_SEPARATOR = '[[CTI_DISCORD_SPLIT]]';
 +
-+function getDiscordStartMessage(): string {
-+  return process.env.CTI_DISCORD_START_MESSAGE?.trim() || '작업 시작';
++function getDiscordStartMessage(): string | null {
++  const value = process.env.CTI_DISCORD_START_MESSAGE;
++  if (value === undefined) return '작업 시작';
++
++  const normalized = value.trim();
++  if (!normalized) return null;
++
++  const lower = normalized.toLowerCase();
++  if (lower === 'false' || lower === 'off' || lower === '0' || lower === 'disabled') {
++    return null;
++  }
++
++  return normalized;
++}
++
++function hasDiscordForwardPrefix(): boolean {
++  return !!process.env.CTI_DISCORD_FORWARD_PREFIX?.trim();
 +}
  
  function getStreamConfig(channelType = 'telegram'): StreamConfig {
    const { store } = getBridgeContext();
-@@ -124,16 +129,25 @@ async function deliverResponse(
+@@ -124,16 +144,25 @@ async function deliverResponse(
      return { ok: true };
    }
    if (adapter.channelType === 'discord') {
@@ -75,15 +90,19 @@ index 751cfef..2c97315 100644
      }
      return { ok: true };
    }
-@@ -592,6 +606,19 @@ async function handleMessage(
+@@ -592,6 +621,23 @@ async function handleMessage(
    // Notify adapter that message processing is starting (e.g., typing indicator)
    adapter.onMessageStart?.(msg.address.chatId);
  
-+  if (adapter.channelType === 'discord') {
++  const discordStartMessage = adapter.channelType === 'discord'
++    ? getDiscordStartMessage()
++    : null;
++
++  if (discordStartMessage) {
 +    try {
 +      await deliver(adapter, {
 +        address: msg.address,
-+        text: getDiscordStartMessage(),
++        text: discordStartMessage,
 +        parseMode: 'plain',
 +        replyToMessageId: msg.messageId,
 +      });
@@ -95,3 +114,77 @@ index 751cfef..2c97315 100644
    // Create an AbortController so /stop can cancel this task externally
    const taskAbort = new AbortController();
    const state = getState();
+@@ -683,11 +729,47 @@ async function handleMessage(
+     } catch { /* non-critical */ }
+   } : undefined;
+ 
++  const discordImmediateForwardEnabled =
++    adapter.channelType === 'discord' && hasDiscordForwardPrefix();
++  let discordForwardCount = 0;
++  let discordForwardChain = Promise.resolve();
++  const onDiscordForwardText = discordImmediateForwardEnabled ? (fullText: string) => {
++    const messages = fullText.includes(DISCORD_FORWARD_SEPARATOR)
++      ? fullText
++          .split(DISCORD_FORWARD_SEPARATOR)
++          .map((part) => part.trim())
++          .filter(Boolean)
++      : [];
++
++    if (messages.length <= discordForwardCount) return;
++    const pendingMessages = messages.slice(discordForwardCount);
++    discordForwardCount = messages.length;
++
++    for (const message of pendingMessages) {
++      discordForwardChain = discordForwardChain
++        .then(() => deliver(adapter, {
++          address: msg.address,
++          text: message,
++          parseMode: 'Markdown',
++          replyToMessageId: msg.messageId,
++        }, { sessionId: binding.codepilotSessionId }))
++        .then(() => undefined)
++        .catch((err) => {
++          console.warn('[bridge-manager] Failed to deliver immediate Discord forward:', err instanceof Error ? err.message : err);
++          return undefined;
++        });
++    }
++  } : undefined;
++
+   // Combined partial text callback: streaming preview + streaming cards
+   const onPartialText = (previewOnPartialText || onStreamCardText) ? (fullText: string) => {
+     if (previewOnPartialText) previewOnPartialText(fullText);
+     if (onStreamCardText) onStreamCardText(fullText);
+   } : undefined;
++  const combinedOnPartialText = (onPartialText || onDiscordForwardText) ? (fullText: string) => {
++    if (onPartialText) onPartialText(fullText);
++    if (onDiscordForwardText) onDiscordForwardText(fullText);
++  } : undefined;
+ 
+   try {
+     // Pass permission callback so requests are forwarded to IM immediately
+@@ -706,7 +788,7 @@ async function handleMessage(
+         perm.suggestions,
+         msg.messageId,
+       );
+-    }, taskAbort.signal, hasAttachments ? msg.attachments : undefined, onPartialText, onToolEvent);
++    }, taskAbort.signal, hasAttachments ? msg.attachments : undefined, combinedOnPartialText, onToolEvent);
+ 
+     // Finalize streaming card if adapter supports it.
+     // onStreamEnd awaits any in-flight card creation and returns true if a card
+@@ -723,9 +805,15 @@ async function handleMessage(
+ 
+     // Send response text — render via channel-appropriate format.
+     // Skip if streaming card was finalized (content already in card).
++    if (discordImmediateForwardEnabled) {
++      try { await discordForwardChain; } catch { /* best effort */ }
++    }
++
+     if (result.responseText) {
+       if (!cardFinalized) {
+-        await deliverResponse(adapter, msg.address, result.responseText, binding.codepilotSessionId, msg.messageId);
++        if (!discordImmediateForwardEnabled) {
++          await deliverResponse(adapter, msg.address, result.responseText, binding.codepilotSessionId, msg.messageId);
++        }
+       }
+     } else if (result.hasError) {
+       const errorResponse: OutboundMessage = {

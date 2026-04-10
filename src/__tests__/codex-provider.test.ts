@@ -167,6 +167,34 @@ describe('CodexProvider', () => {
     }
   });
 
+  it('keeps a single discord forward block open until completion', async () => {
+    const previous = process.env.CTI_DISCORD_FORWARD_PREFIX;
+    process.env.CTI_DISCORD_FORWARD_PREFIX = '[DC]';
+    try {
+      const { extractForwardBlocks } = await import('../codex-provider.js');
+
+      const partial = extractForwardBlocks(
+        '[DC] 네, 지금은 생략하는 게 맞습니다.\n\n- 자동 작업 시작 알림은 끄기',
+        false,
+      );
+      const completed = extractForwardBlocks(
+        '[DC] 네, 지금은 생략하는 게 맞습니다.\n\n- 자동 작업 시작 알림은 끄기',
+        true,
+      );
+
+      assert.deepEqual(partial, []);
+      assert.deepEqual(completed, [
+        '네, 지금은 생략하는 게 맞습니다.\n\n- 자동 작업 시작 알림은 끄기',
+      ]);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.CTI_DISCORD_FORWARD_PREFIX;
+      } else {
+        process.env.CTI_DISCORD_FORWARD_PREFIX = previous;
+      }
+    }
+  });
+
   it('maps command_execution item to tool_use + tool_result', async () => {
     const { CodexProvider } = await import('../codex-provider.js');
     const { PendingPermissions } = await import('../permission-gateway.js');

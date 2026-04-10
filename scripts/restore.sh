@@ -109,7 +109,7 @@ if [[ ! -f "$HOME/.claude-to-im/config.env" ]]; then
   echo "   - CTI_RUNTIME=codex"
   echo "   - CTI_DISCORD_STREAM_ENABLED=false"
   echo "   - CTI_DISCORD_FORWARD_PREFIX=[DC]"
-  echo "   - CTI_DISCORD_START_MESSAGE=작업 시작"
+  echo "   - CTI_DISCORD_START_MESSAGE=false"
   echo ""
 fi
 

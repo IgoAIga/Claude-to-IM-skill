@@ -22,12 +22,14 @@
 
 ### 3. Discord 전달 규칙 분리
 - `CTI_DISCORD_FORWARD_PREFIX=[DC]`가 붙은 응답만 Discord로 전달
+- `item/agentMessage/delta`를 사용해 `[DC]` 문구는 **턴 종료 전에도 즉시 전달**
 - 같은 답변 안에 `[DC]`가 여러 개 있으면 **각각 별도 Discord 메시지**로 분리 전송
 - 일반 commentary / 중간 진행 텍스트는 Discord로 전달하지 않음
 
 ### 4. Discord 작업 시작 자동 알림
 - 일반 작업 메시지를 받으면 Discord에 먼저 짧은 시작 문구를 1회 전송
 - 환경변수: `CTI_DISCORD_START_MESSAGE` (기본값: `작업 시작`)
+- `false`, `off`, `0`, `disabled` 중 하나로 설정하면 자동 시작 알림 비활성화
 
 ### 5. Discord에서 다른 봇 메시지도 읽기
 - 자기 자신 봇 메시지만 제외하고, 다른 봇/웹훅 메시지는 입력으로 처리 가능
@@ -107,8 +109,8 @@ CTI_DISCORD_STREAM_ENABLED=false
 # Discord로 보낼 답변만 이 접두사로 시작
 CTI_DISCORD_FORWARD_PREFIX=[DC]
 
-# 작업 시작 시 자동으로 먼저 보낼 짧은 문구
-CTI_DISCORD_START_MESSAGE=작업 시작
+# 작업 시작 자동 알림 비활성화
+CTI_DISCORD_START_MESSAGE=false
 
 # [선택] app-server WebSocket 포트 (기본값 9100)
 # CTI_CODEX_WS_PORT=9100
@@ -211,3 +213,4 @@ npm install && npm run build
 | `(수정됨)` 반복 | `CTI_DISCORD_STREAM_ENABLED` 미설정 | config.env에 `=false` 추가 후 재시작 |
 | Discord에 중간 멘트까지 전부 올라옴 | `CTI_DISCORD_FORWARD_PREFIX` 미설정 | config.env에 `CTI_DISCORD_FORWARD_PREFIX=[DC]` 추가 후 재시작 |
 | `[DC]` 여러 개가 한 덩어리로 감 | 구버전 daemon 실행 중 | restore.sh 재실행 또는 `systemctl --user restart claude-to-im` |
+| `[DC]` 첫 문장만 먼저 가고 뒤가 늦게 붙음 | 구버전 daemon 실행 중 | restore.sh 재실행 또는 `systemctl --user restart claude-to-im` |
