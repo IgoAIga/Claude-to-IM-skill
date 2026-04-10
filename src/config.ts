@@ -22,6 +22,7 @@ export interface Config {
   discordAllowedUsers?: string[];
   discordAllowedChannels?: string[];
   discordAllowedGuilds?: string[];
+  discordStreamEnabled?: boolean;
   // QQ
   qqAppId?: string;
   qqAppSecret?: string;
@@ -99,6 +100,9 @@ export function loadConfig(): Config {
       env.get("CTI_DISCORD_ALLOWED_CHANNELS")
     ),
     discordAllowedGuilds: splitCsv(env.get("CTI_DISCORD_ALLOWED_GUILDS")),
+    discordStreamEnabled: env.has("CTI_DISCORD_STREAM_ENABLED")
+      ? env.get("CTI_DISCORD_STREAM_ENABLED") === "true"
+      : undefined,
     qqAppId: env.get("CTI_QQ_APP_ID") || undefined,
     qqAppSecret: env.get("CTI_QQ_APP_SECRET") || undefined,
     qqAllowedUsers: splitCsv(env.get("CTI_QQ_ALLOWED_USERS")),
@@ -158,6 +162,11 @@ export function saveConfig(config: Config): void {
     "CTI_DISCORD_ALLOWED_GUILDS",
     config.discordAllowedGuilds?.join(",")
   );
+  if (config.discordStreamEnabled !== undefined)
+    out += formatEnvLine(
+      "CTI_DISCORD_STREAM_ENABLED",
+      String(config.discordStreamEnabled)
+    );
   out += formatEnvLine("CTI_QQ_APP_ID", config.qqAppId);
   out += formatEnvLine("CTI_QQ_APP_SECRET", config.qqAppSecret);
   out += formatEnvLine(
@@ -221,6 +230,11 @@ export function configToSettings(config: Config): Map<string, string> {
     m.set(
       "bridge_discord_allowed_guilds",
       config.discordAllowedGuilds.join(",")
+    );
+  if (config.discordStreamEnabled !== undefined)
+    m.set(
+      "bridge_discord_stream_enabled",
+      String(config.discordStreamEnabled)
     );
 
   // ── Feishu ──
