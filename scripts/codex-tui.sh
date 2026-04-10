@@ -29,4 +29,4 @@ echo "Connecting TUI to: $WS_URL"
 echo "(Press Ctrl+C to detach without stopping the bridge)"
 echo ""
 
-exec codex resume --remote "$WS_URL"
+exec codex resume --remote "$WS_URL" --dangerously-bypass-approvals-and-sandbox
