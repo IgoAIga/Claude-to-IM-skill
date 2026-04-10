@@ -20,7 +20,19 @@
 ### 2. Discord 스트리밍 편집 비활성화 (`src/config.ts`)
 - `CTI_DISCORD_STREAM_ENABLED=false`가 런타임에 정상 반영되도록 설정 매핑 추가
 
-### 3. TUI 접속 스크립트 (`scripts/codex-tui.sh`)
+### 3. Discord 전달 규칙 분리
+- `CTI_DISCORD_FORWARD_PREFIX=[DC]`가 붙은 응답만 Discord로 전달
+- 같은 답변 안에 `[DC]`가 여러 개 있으면 **각각 별도 Discord 메시지**로 분리 전송
+- 일반 commentary / 중간 진행 텍스트는 Discord로 전달하지 않음
+
+### 4. Discord 작업 시작 자동 알림
+- 일반 작업 메시지를 받으면 Discord에 먼저 짧은 시작 문구를 1회 전송
+- 환경변수: `CTI_DISCORD_START_MESSAGE` (기본값: `작업 시작`)
+
+### 5. Discord에서 다른 봇 메시지도 읽기
+- 자기 자신 봇 메시지만 제외하고, 다른 봇/웹훅 메시지는 입력으로 처리 가능
+
+### 6. TUI 접속 스크립트 (`scripts/codex-tui.sh`)
 - `codex resume --remote ws://127.0.0.1:PORT`를 간편하게 실행하는 래퍼
 
 ---
@@ -31,6 +43,15 @@
 bash <(curl -fsSL https://raw.githubusercontent.com/IgoAIga/Claude-to-IM-skill/main/scripts/restore.sh)
 ```
 
+이 스크립트는 다음을 자동으로 수행한다.
+
+- `~/.codex/skills/claude-to-im` 클론/업데이트
+- `~/.codex/skills/Claude-to-IM` 클론
+- 코어 라이브러리에 커스텀 패치 적용
+- 코어/스킬 순서대로 `npm install && npm run build`
+- `codex-tui` 링크 등록
+- `systemd --user` 서비스 등록 및 실행 중이면 재시작
+
 ---
 
 ## 수동 설치 (단계별)
@@ -40,18 +61,25 @@ AI 에이전트가 위 스크립트 대신 직접 실행할 경우 아래 순서
 ### Step 1: 클론
 
 ```bash
-# Codex 스킬 디렉토리에 클론
+# 스킬 저장소
 git clone https://github.com/IgoAIga/Claude-to-IM-skill.git ~/.codex/skills/claude-to-im
 
-cd ~/.codex/skills/claude-to-im
+# 코어 라이브러리 저장소
+git clone https://github.com/op7418/Claude-to-IM.git ~/.codex/skills/Claude-to-IM
 
-# 원본을 upstream으로 등록 (향후 업데이트 머지용)
+cd ~/.codex/skills/claude-to-im
 git remote add upstream https://github.com/op7418/Claude-to-IM-skill.git
 ```
 
-### Step 2: 의존성 설치 + 빌드
+### Step 2: 코어 패치 적용 + 빌드
 
 ```bash
+cd ~/.codex/skills/Claude-to-IM
+git apply --3way ~/.codex/skills/claude-to-im/patches/claude-to-im-custom.patch
+npm install
+npm run build
+
+cd ~/.codex/skills/claude-to-im
 npm install
 npm run build
 ```
@@ -75,6 +103,12 @@ CTI_RUNTIME=codex
 
 # Discord 스트리밍 편집 비활성화 (메시지가 계속 "(수정됨)"으로 갱신되는 것 방지)
 CTI_DISCORD_STREAM_ENABLED=false
+
+# Discord로 보낼 답변만 이 접두사로 시작
+CTI_DISCORD_FORWARD_PREFIX=[DC]
+
+# 작업 시작 시 자동으로 먼저 보낼 짧은 문구
+CTI_DISCORD_START_MESSAGE=작업 시작
 
 # [선택] app-server WebSocket 포트 (기본값 9100)
 # CTI_CODEX_WS_PORT=9100
@@ -175,3 +209,5 @@ npm install && npm run build
 | `app-server exited (code=1)` | 포트 충돌 또는 codex CLI 미설치 | 포트 확인 + `codex --version` |
 | `codex-tui` 연결 실패 | 데몬 미실행 또는 첫 메시지 전 | Discord에서 메시지 전송 후 재시도 |
 | `(수정됨)` 반복 | `CTI_DISCORD_STREAM_ENABLED` 미설정 | config.env에 `=false` 추가 후 재시작 |
+| Discord에 중간 멘트까지 전부 올라옴 | `CTI_DISCORD_FORWARD_PREFIX` 미설정 | config.env에 `CTI_DISCORD_FORWARD_PREFIX=[DC]` 추가 후 재시작 |
+| `[DC]` 여러 개가 한 덩어리로 감 | 구버전 daemon 실행 중 | restore.sh 재실행 또는 `systemctl --user restart claude-to-im` |

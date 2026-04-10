@@ -36,6 +36,7 @@ const MIME_EXT: Record<string, string> = {
 const DEFAULT_WS_PORT = 9100;
 const WS_INFO_DIR = path.join(os.homedir(), '.codex', 'bridge');
 const WS_INFO_FILE = path.join(WS_INFO_DIR, 'ws-url');
+const DISCORD_FORWARD_SEPARATOR = '\n[[CTI_DISCORD_SPLIT]]\n';
 
 // ── Helpers ──
 
@@ -71,6 +72,26 @@ function shouldRetryFreshThread(message: string): boolean {
     lower.includes('no such session') ||
     (lower.includes('resume') && lower.includes('session'))
   );
+}
+
+function filterForwardedAgentText(text: string): string {
+  const prefix = process.env.CTI_DISCORD_FORWARD_PREFIX?.trim();
+  if (!prefix) return text;
+  const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const normalized = text.replace(/\r\n/g, '\n');
+  const pattern = new RegExp(
+    `(?:^|\\n)\\s*${escapedPrefix}\\s*([\\s\\S]*?)(?=(?:\\n\\s*${escapedPrefix}\\s*)|$)`,
+    'g',
+  );
+
+  const parts: string[] = [];
+  for (const match of normalized.matchAll(pattern)) {
+    const content = (match[1] || '').trim();
+    if (content) parts.push(content);
+  }
+
+  if (parts.length === 0) return '';
+  return parts.map((part) => `${DISCORD_FORWARD_SEPARATOR}${part}`).join('');
 }
 
 // ── JSON-RPC 2.0 Client over WebSocket ──
@@ -522,7 +543,7 @@ export class CodexProvider implements LLMProvider {
     switch (itemType) {
       case 'agent_message':
       case 'agentMessage': {
-        const text = (item.text as string) || '';
+        const text = filterForwardedAgentText((item.text as string) || '');
         if (text) {
           controller.enqueue(sseEvent('text', text));
         }

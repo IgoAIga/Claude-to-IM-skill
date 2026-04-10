@@ -1,0 +1,97 @@
+diff --git a/src/lib/bridge/adapters/discord-adapter.ts b/src/lib/bridge/adapters/discord-adapter.ts
+index 054b34f..61b5288 100644
+--- a/src/lib/bridge/adapters/discord-adapter.ts
++++ b/src/lib/bridge/adapters/discord-adapter.ts
+@@ -312,7 +312,9 @@ export class DiscordAdapter extends BaseChannelAdapter {
+ 
+   getPreviewCapabilities(chatId: string): PreviewCapabilities | null {
+     // Global kill switch
+-    if (getBridgeContext().store.getSetting('bridge_discord_stream_enabled') === 'false') return null;
++    const streamDisabled = getBridgeContext().store.getSetting('bridge_discord_stream_enabled') === 'false'
++      || process.env.CTI_DISCORD_STREAM_ENABLED === 'false';
++    if (streamDisabled) return null;
+ 
+     // Already degraded for this chat
+     if (this.previewDegraded.has(chatId)) return null;
+@@ -417,8 +419,7 @@ export class DiscordAdapter extends BaseChannelAdapter {
+ 
+   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   private async processMessage(message: any): Promise<void> {
+-    // Filter out bot messages (including self)
+-    if (message.author.bot) return;
++    // Filter out only this bridge bot's own messages to prevent loops
+     if (this.botUserId && message.author.id === this.botUserId) return;
+ 
+     // Dedup by message ID
+diff --git a/src/lib/bridge/bridge-manager.ts b/src/lib/bridge/bridge-manager.ts
+index 751cfef..2c97315 100644
+--- a/src/lib/bridge/bridge-manager.ts
++++ b/src/lib/bridge/bridge-manager.ts
+@@ -48,6 +48,11 @@ const STREAM_DEFAULTS: Record<string, StreamConfig> = {
+   telegram: { intervalMs: 700, minDeltaChars: 20, maxChars: 3900 },
+   discord: { intervalMs: 1500, minDeltaChars: 40, maxChars: 1900 },
+ };
++const DISCORD_FORWARD_SEPARATOR = '[[CTI_DISCORD_SPLIT]]';
++
++function getDiscordStartMessage(): string {
++  return process.env.CTI_DISCORD_START_MESSAGE?.trim() || '작업 시작';
++}
+ 
+ function getStreamConfig(channelType = 'telegram'): StreamConfig {
+   const { store } = getBridgeContext();
+@@ -124,16 +129,25 @@ async function deliverResponse(
+     return { ok: true };
+   }
+   if (adapter.channelType === 'discord') {
+-    // Discord: native markdown, chunk at 2000 chars with fence repair
+-    const chunks = markdownToDiscordChunks(responseText, 2000);
+-    for (let i = 0; i < chunks.length; i++) {
+-      const result = await deliver(adapter, {
+-        address,
+-        text: chunks[i].text,
+-        parseMode: 'Markdown',
+-        replyToMessageId,
+-      }, { sessionId });
+-      if (!result.ok) return result;
++    const messages = responseText.includes(DISCORD_FORWARD_SEPARATOR)
++      ? responseText
++          .split(DISCORD_FORWARD_SEPARATOR)
++          .map((part) => part.trim())
++          .filter(Boolean)
++      : [responseText];
++
++    for (const message of messages) {
++      // Discord: native markdown, chunk at 2000 chars with fence repair
++      const chunks = markdownToDiscordChunks(message, 2000);
++      for (let i = 0; i < chunks.length; i++) {
++        const result = await deliver(adapter, {
++          address,
++          text: chunks[i].text,
++          parseMode: 'Markdown',
++          replyToMessageId,
++        }, { sessionId });
++        if (!result.ok) return result;
++      }
+     }
+     return { ok: true };
+   }
+@@ -592,6 +606,19 @@ async function handleMessage(
+   // Notify adapter that message processing is starting (e.g., typing indicator)
+   adapter.onMessageStart?.(msg.address.chatId);
+ 
++  if (adapter.channelType === 'discord') {
++    try {
++      await deliver(adapter, {
++        address: msg.address,
++        text: getDiscordStartMessage(),
++        parseMode: 'plain',
++        replyToMessageId: msg.messageId,
++      });
++    } catch (err) {
++      console.warn('[bridge-manager] Failed to send Discord start message:', err instanceof Error ? err.message : err);
++    }
++  }
++
+   // Create an AbortController so /stop can cancel this task externally
+   const taskAbort = new AbortController();
+   const state = getState();

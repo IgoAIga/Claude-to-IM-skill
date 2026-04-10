@@ -23,6 +23,8 @@ export interface Config {
   discordAllowedChannels?: string[];
   discordAllowedGuilds?: string[];
   discordStreamEnabled?: boolean;
+  discordForwardPrefix?: string;
+  discordStartMessage?: string;
   // QQ
   qqAppId?: string;
   qqAppSecret?: string;
@@ -103,6 +105,8 @@ export function loadConfig(): Config {
     discordStreamEnabled: env.has("CTI_DISCORD_STREAM_ENABLED")
       ? env.get("CTI_DISCORD_STREAM_ENABLED") === "true"
       : undefined,
+    discordForwardPrefix: env.get("CTI_DISCORD_FORWARD_PREFIX") || undefined,
+    discordStartMessage: env.get("CTI_DISCORD_START_MESSAGE") || undefined,
     qqAppId: env.get("CTI_QQ_APP_ID") || undefined,
     qqAppSecret: env.get("CTI_QQ_APP_SECRET") || undefined,
     qqAllowedUsers: splitCsv(env.get("CTI_QQ_ALLOWED_USERS")),
@@ -167,6 +171,14 @@ export function saveConfig(config: Config): void {
       "CTI_DISCORD_STREAM_ENABLED",
       String(config.discordStreamEnabled)
     );
+  out += formatEnvLine(
+    "CTI_DISCORD_FORWARD_PREFIX",
+    config.discordForwardPrefix
+  );
+  out += formatEnvLine(
+    "CTI_DISCORD_START_MESSAGE",
+    config.discordStartMessage
+  );
   out += formatEnvLine("CTI_QQ_APP_ID", config.qqAppId);
   out += formatEnvLine("CTI_QQ_APP_SECRET", config.qqAppSecret);
   out += formatEnvLine(

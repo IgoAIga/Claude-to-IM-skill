@@ -95,6 +95,78 @@ describe('CodexProvider', () => {
     assert.equal(events[0].data, 'Hello from Codex!');
   });
 
+  it('filters agent_message by discord forward prefix when configured', async () => {
+    const previous = process.env.CTI_DISCORD_FORWARD_PREFIX;
+    process.env.CTI_DISCORD_FORWARD_PREFIX = '[DC]';
+    try {
+      const { CodexProvider } = await import('../codex-provider.js');
+      const { PendingPermissions } = await import('../permission-gateway.js');
+      const provider = new CodexProvider(new PendingPermissions());
+
+      const chunks: string[] = [];
+      const mockController = {
+        enqueue: (chunk: string) => chunks.push(chunk),
+      } as unknown as ReadableStreamDefaultController<string>;
+
+      (provider as any).handleCompletedItem(mockController, {
+        type: 'agent_message',
+        id: 'msg-2',
+        text: '[DC] Discord only',
+      });
+      (provider as any).handleCompletedItem(mockController, {
+        type: 'agent_message',
+        id: 'msg-3',
+        text: 'Commentary that should stay local',
+      });
+
+      const events = parseSSEChunks(chunks);
+      assert.equal(events.length, 1);
+      assert.equal(events[0].type, 'text');
+      assert.equal(events[0].data, 'Discord only');
+    } finally {
+      if (previous === undefined) {
+        delete process.env.CTI_DISCORD_FORWARD_PREFIX;
+      } else {
+        process.env.CTI_DISCORD_FORWARD_PREFIX = previous;
+      }
+    }
+  });
+
+  it('splits multiple discord forward blocks from a single agent_message', async () => {
+    const previous = process.env.CTI_DISCORD_FORWARD_PREFIX;
+    process.env.CTI_DISCORD_FORWARD_PREFIX = '[DC]';
+    try {
+      const { CodexProvider } = await import('../codex-provider.js');
+      const { PendingPermissions } = await import('../permission-gateway.js');
+      const provider = new CodexProvider(new PendingPermissions());
+
+      const chunks: string[] = [];
+      const mockController = {
+        enqueue: (chunk: string) => chunks.push(chunk),
+      } as unknown as ReadableStreamDefaultController<string>;
+
+      (provider as any).handleCompletedItem(mockController, {
+        type: 'agent_message',
+        id: 'msg-multi',
+        text: '[DC] 첫 번째\n\n[DC] 두 번째\n\n[DC] 세 번째',
+      });
+
+      const events = parseSSEChunks(chunks);
+      assert.equal(events.length, 1);
+      assert.equal(events[0].type, 'text');
+      assert.equal(
+        events[0].data,
+        '\n[[CTI_DISCORD_SPLIT]]\n첫 번째\n[[CTI_DISCORD_SPLIT]]\n두 번째\n[[CTI_DISCORD_SPLIT]]\n세 번째',
+      );
+    } finally {
+      if (previous === undefined) {
+        delete process.env.CTI_DISCORD_FORWARD_PREFIX;
+      } else {
+        process.env.CTI_DISCORD_FORWARD_PREFIX = previous;
+      }
+    }
+  });
+
   it('maps command_execution item to tool_use + tool_result', async () => {
     const { CodexProvider } = await import('../codex-provider.js');
     const { PendingPermissions } = await import('../permission-gateway.js');
