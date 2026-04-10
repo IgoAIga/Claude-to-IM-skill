@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/ser8/.codex/skills/claude-to-im
+WorkingDirectory=%h/.codex/skills/claude-to-im
 ExecStart=/usr/bin/node dist/daemon.mjs
 Restart=on-failure
 RestartSec=5
@@ -12,7 +12,9 @@ StandardOutput=journal
 StandardError=journal
 
 # Environment
-EnvironmentFile=-/home/ser8/.codex/skills/claude-to-im/config.env
+EnvironmentFile=-%h/.claude-to-im/config.env
+Environment=PATH=%h/.local/bin:%h/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=%h
 
 [Install]
 WantedBy=default.target
