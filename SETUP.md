@@ -97,18 +97,43 @@ ln -sf ~/.codex/skills/claude-to-im/scripts/codex-tui.sh ~/.local/bin/codex-tui
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 ```
 
-### Step 5: 데몬 시작
+### Step 5: systemd 서비스 등록 (권장)
+
+Codex compact 등으로 세션이 재시작되어도 데몬이 죽지 않도록 systemd user service로 실행한다.
 
 ```bash
-cd ~/.codex/skills/claude-to-im
-nohup node dist/daemon.mjs > /tmp/claude-to-im-daemon.log 2>&1 &
+# 서비스 파일 복사
+mkdir -p ~/.config/systemd/user
+cp ~/.codex/skills/claude-to-im/scripts/claude-to-im.service ~/.config/systemd/user/
+
+# 서비스 파일 내 경로가 실제 설치 경로와 맞는지 확인 (기본값: ~/.codex/skills/claude-to-im)
+# 다른 경로에 설치했다면 WorkingDirectory를 수정
+
+# 등록 + 시작
+systemctl --user daemon-reload
+systemctl --user enable claude-to-im
+systemctl --user start claude-to-im
 ```
+
+서비스 관리:
+```bash
+systemctl --user status claude-to-im    # 상태 확인
+systemctl --user restart claude-to-im   # 재시작
+systemctl --user stop claude-to-im      # 중지
+journalctl --user -u claude-to-im -f    # 로그
+```
+
+> **대안 (systemd 불가 시):** `nohup`으로 수동 실행
+> ```bash
+> cd ~/.codex/skills/claude-to-im
+> setsid nohup node dist/daemon.mjs > /tmp/claude-to-im-daemon.log 2>&1 &
+> ```
 
 ### Step 6: 동작 확인
 
 ```bash
 # 데몬 실행 확인
-ps aux | grep daemon.mjs
+systemctl --user status claude-to-im
 
 # Discord에서 Codex에 메시지 전송 → app-server 자동 시작
 
@@ -122,8 +147,10 @@ codex-tui
 
 | 작업 | 명령어 |
 |---|---|
-| 데몬 시작 | `cd ~/.codex/skills/claude-to-im && nohup node dist/daemon.mjs &` |
-| 데몬 중지 | `kill $(pgrep -f 'node dist/daemon.mjs')` |
+| 데몬 시작 | `systemctl --user start claude-to-im` |
+| 데몬 중지 | `systemctl --user stop claude-to-im` |
+| 데몬 재시작 | `systemctl --user restart claude-to-im` |
+| 데몬 로그 | `journalctl --user -u claude-to-im -f` |
 | TUI 접속 | `codex-tui` |
 | TUI 접속 (포트 지정) | `codex-tui 9200` |
 | 로그 확인 | `cat /tmp/claude-to-im-daemon.log` |
