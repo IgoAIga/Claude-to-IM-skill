@@ -365,6 +365,7 @@ export class CodexProvider implements LLMProvider {
               ...(params.workingDirectory ? { workingDirectory: params.workingDirectory } : {}),
               ...(shouldSkipGitRepoCheck() ? { skipGitRepoCheck: true } : {}),
               approvalPolicy,
+              sandboxMode: process.env.CTI_CODEX_SANDBOX_MODE || 'danger-full-access',
             };
 
             // ── Build input (text + optional images) ──
