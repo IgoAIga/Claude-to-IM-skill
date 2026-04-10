@@ -54,6 +54,11 @@ bash <(curl -fsSL https://raw.githubusercontent.com/IgoAIga/Claude-to-IM-skill/m
 - `codex-tui` 링크 등록
 - `systemd --user` 서비스 등록 및 실행 중이면 재시작
 
+> 중요:
+> 복원 스크립트는 코드와 서비스까지 복구하지만, 실제 Discord 전달 동작은
+> `~/.claude-to-im/config.env` 값에 따라 달라진다. 현재 포크 기준 권장값은
+> 아래 "권장 Discord 설정" 블록을 따른다.
+
 ---
 
 ## 수동 설치 (단계별)
@@ -114,6 +119,29 @@ CTI_DISCORD_START_MESSAGE=false
 
 # [선택] app-server WebSocket 포트 (기본값 9100)
 # CTI_CODEX_WS_PORT=9100
+```
+
+### 권장 Discord 설정
+
+현재 포크에서 사용자 경험을 맞추려면 아래 값을 권장한다.
+
+```env
+CTI_RUNTIME=codex
+CTI_DISCORD_STREAM_ENABLED=false
+CTI_DISCORD_FORWARD_PREFIX=[DC]
+CTI_DISCORD_START_MESSAGE=false
+```
+
+설명:
+- `CTI_RUNTIME=codex`: Claude CLI가 아니라 Codex app-server 기반으로 동작
+- `CTI_DISCORD_STREAM_ENABLED=false`: Discord 스트리밍 편집 비활성화
+- `CTI_DISCORD_FORWARD_PREFIX=[DC]`: `[DC]`가 붙은 응답만 Discord 전달
+- `CTI_DISCORD_START_MESSAGE=false`: 자동 시작 알림 제거
+
+설정 변경 후에는 반드시 재시작:
+
+```bash
+systemctl --user restart claude-to-im
 ```
 
 권한 설정:
