@@ -44,11 +44,15 @@ function getWsPort(): number {
 }
 
 function toApprovalPolicy(permissionMode?: string): string {
+  // CTI_CODEX_APPROVAL_POLICY overrides everything
+  const override = process.env.CTI_CODEX_APPROVAL_POLICY;
+  if (override) return override;
+
   switch (permissionMode) {
     case 'acceptEdits': return 'on-failure';
     case 'plan': return 'on-request';
     case 'default': return 'on-request';
-    default: return 'on-request';
+    default: return 'never';
   }
 }
 
