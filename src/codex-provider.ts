@@ -137,6 +137,8 @@ class AppServerClient {
   private notificationHandler: NotificationHandler | null = null;
   private closed = false;
   readonly wsUrl: string;
+  private _cwd: string | undefined;
+  onDied: (() => void) | null = null;
 
   constructor(port: number) {
     this.wsUrl = `ws://127.0.0.1:${port}`;
@@ -144,6 +146,8 @@ class AppServerClient {
 
   /** Spawn codex app-server with WebSocket listener and connect. */
   async start(cwd?: string): Promise<void> {
+    this._cwd = cwd;
+    this.closed = false;
     const env: Record<string, string> = { ...process.env as Record<string, string> };
 
     // Pass through API credentials
@@ -181,6 +185,10 @@ class AppServerClient {
         p.reject(new Error(`app-server exited (code=${code})`));
       }
       this.pending.clear();
+      // Notify owner to auto-respawn (unless intentionally closed)
+      if (code !== null && code !== 0 && this.onDied) {
+        this.onDied();
+      }
     });
 
     // Wait for WebSocket to become available
@@ -388,12 +396,24 @@ export class CodexProvider implements LLMProvider {
     }
 
     const port = getWsPort();
-    this.client = new AppServerClient(port);
-    await this.client.start(cwd);
+    const client = new AppServerClient(port);
+    await client.start(cwd);
 
-    console.log(`[codex-provider] ✓ app-server running at ${this.client.wsUrl}`);
-    console.log(`[codex-provider] TUI command: codex resume --remote ${this.client.wsUrl}`);
-    return this.client;
+    // Auto-respawn on unexpected death (3s delay to avoid rapid loops)
+    client.onDied = () => {
+      console.warn('[codex-provider] app-server crashed, auto-respawning in 3s...');
+      this.client = null;
+      setTimeout(() => {
+        this.ensureClient(client['_cwd']).catch((err) => {
+          console.error('[codex-provider] auto-respawn failed:', err);
+        });
+      }, 3000);
+    };
+
+    this.client = client;
+    console.log(`[codex-provider] ✓ app-server running at ${client.wsUrl}`);
+    console.log(`[codex-provider] TUI command: codex resume --remote ${client.wsUrl}`);
+    return client;
   }
 
   streamChat(params: StreamChatParams): ReadableStream<string> {
