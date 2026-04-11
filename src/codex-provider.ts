@@ -375,7 +375,17 @@ export class CodexProvider implements LLMProvider {
   }
 
   private async ensureClient(cwd?: string): Promise<AppServerClient> {
-    if (this.client) return this.client;
+    // Check if existing client is still alive
+    if (this.client) {
+      const proc = this.client.proc;
+      if (proc && proc.exitCode === null && !proc.killed) {
+        return this.client;
+      }
+      // App-server died — clean up and recreate
+      console.warn('[codex-provider] app-server died, recreating...');
+      await this.client.close().catch(() => {});
+      this.client = null;
+    }
 
     const port = getWsPort();
     this.client = new AppServerClient(port);
